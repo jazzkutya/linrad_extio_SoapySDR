@@ -42,6 +42,8 @@ For more information, please refer to <http://unlicense.org>
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <SoapySDR/Device.hpp>
+#include <SoapySDR/Version.hpp>
 
 //using namespace std;
 
@@ -49,7 +51,7 @@ For more information, please refer to <http://unlicense.org>
 
 //#define DEBUG 0
 
-//Globals
+//Globals, parameter the extio user sets
 static long freq = 145000000;			// nominal / desired frequency
 static long freqmin,freqmax;
 static int gain,gainmin,gainmax;
@@ -59,6 +61,12 @@ static long samplerate;
 static int extio_blocksize;		// number of samples in one ExtIO block. unit: complex sample (= 2 real samples)
 volatile static bool doThreadExit = false;
 static bool Running = FALSE;
+
+// Soapy stuff
+SoapySDR::Device *device=NULL;
+size_t channel=0;
+SoapySDR::Stream *stream=NULL;
+size_t soapy_mtu;
 
 struct ThreadContainer 
 {
@@ -96,6 +104,11 @@ int Message(const char *format, ...) {
     return rv;
 }
 
+void setsr(long sr) {
+    device->setSampleRate(SOAPY_SDR_RX,channel,(double)sr);
+    samplerate=(long)device->getSampleRate(SOAPY_SDR_RX,channel);
+    Message("Actual sample rate is %d",samplerate);
+}
 extern "C"
 bool  EXTIO_API InitHW(char *name, char *model, int& type)
 {
@@ -103,10 +116,34 @@ bool  EXTIO_API InitHW(char *name, char *model, int& type)
     //  get device selector string from env
     //  make the device with soapy
     //  maybe also set up stream just to be sure channel 0 is available
+    samplerate=1024000;
     Message("InitHW called");
     strcpy(name,"SoapySDR");
-    strcpy(model,"basic extio");
     type = EXTIO_HWTYPE_16B;
+    const char *devspec=getenv("LINRAD_SOAPY_DEV");
+    if (devspec==NULL) devspec="";
+    device=SoapySDR::Device::make(devspec);
+    if (device==NULL) {
+        Message("SoapySDR::Device::make(\"%s\") failed",devspec);
+        *model='\0';
+        return FALSE;
+    }
+    auto drivername=device->getDriverKey();
+    strcpy(model,drivername.c_str());
+    channel=0;
+    stream=device->setupStream(SOAPY_SDR_RX,"CS16",std::vector<size_t>(1,channel));
+    if (stream==NULL) {
+        Message("SoapySDR::Device::setupStream() failed");
+        return FALSE;
+    }
+    setsr(samplerate);
+    auto gr=device->getGainRange(SOAPY_SDR_RX,channel);
+    gainmax=gr.maximum();
+    gainmin=gr.minimum();
+    auto frl=device->getFrequencyRange(SOAPY_SDR_RX,channel);
+    freqmax=frl.back().maximum();
+    freqmin=frl.front().minimum();
+    Message("Freq range: %d-%d",freqmin,freqmax);
     Message("InitHW returns");
     return TRUE;
 }
@@ -115,7 +152,6 @@ extern "C"
 bool  EXTIO_API OpenHW()
 {
     Message("OpenHW called");
-    samplerate=1024000;
     extio_blocksize=1024;   // this give 1000 blocks per second, just for testing;
     freqmin=100000;
     freqmax=2000000000;
@@ -202,6 +238,14 @@ extern "C" void EXTIO_API StopHW() {
     Message("StopHW called");
 	Running = FALSE;
 	Stop_Thread();
+    if (stream) {
+        device->closeStream(stream);
+        stream=NULL;
+    }
+    if (device) {
+        SoapySDR::Device::unmake(device);
+        device=NULL;
+    }
     Message("StopHW returns");
 }
 
