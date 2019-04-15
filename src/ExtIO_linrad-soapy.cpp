@@ -59,6 +59,7 @@ static long samplerate;
 
 //Other Globals
 static int extio_blocksize;		// number of samples in one ExtIO block. unit: complex sample (= 2 real samples)
+static int extio_bps=100;           // blocks per seconds targeted
 volatile static bool doThreadExit = false;
 static bool Running = FALSE;
 
@@ -108,15 +109,27 @@ void setsr(long sr) {
     device->setSampleRate(SOAPY_SDR_RX,channel,(double)sr);
     samplerate=(long)device->getSampleRate(SOAPY_SDR_RX,channel);
     Message("Actual sample rate is %d",samplerate);
+
+    soapy_mtu=device->getStreamMTU(stream);
+    if (soapy_mtu>=16384 && (soapy_mtu&511)==0) extio_blocksize=soapy_mtu;  // that lower limit should depend on samplerate and extio_bps, actually
+    else {
+        int min512=soapy_mtu>>9;
+        if (soapy_mtu&511) min512++;
+
+        extio_blocksize=((samplerate+(extio_bps>>1)) / extio_bps)>>9;
+        //Message("target blocksize in 512samples units: %d. extio_bps=%d",extio_blocksize,extio_bps);
+        if (extio_blocksize<min512) extio_blocksize=min512;
+        extio_blocksize=extio_blocksize<<9;
+    }
+    Message("soapy MTU %d, blocksize %d",soapy_mtu,extio_blocksize);
 }
 extern "C"
 bool  EXTIO_API InitHW(char *name, char *model, int& type)
 {
-    // TODO 
     //  get device selector string from env
     //  make the device with soapy
     //  maybe also set up stream just to be sure channel 0 is available
-    samplerate=1024000;
+    samplerate=8000000;
     Message("InitHW called");
     strcpy(name,"SoapySDR");
     type = EXTIO_HWTYPE_16B;
@@ -144,6 +157,7 @@ bool  EXTIO_API InitHW(char *name, char *model, int& type)
     freqmax=frl.back().maximum();
     freqmin=frl.front().minimum();
     Message("Freq range: %d-%d",freqmin,freqmax);
+
     Message("InitHW returns");
     return TRUE;
 }
@@ -152,9 +166,6 @@ extern "C"
 bool  EXTIO_API OpenHW()
 {
     Message("OpenHW called");
-    extio_blocksize=1024;   // this give 1000 blocks per second, just for testing;
-    freqmin=100000;
-    freqmax=2000000000;
     Message("OpenHW returns");
 	return TRUE;
 }
@@ -176,17 +187,20 @@ long EXTIO_API SetHWLO(long rfreq)
 		//WinradCallBack(-1, WINRAD_LORELEASED, 0, NULL);
 		return -freqmin;
 	}
-    freq=rfreq;
+    device->setFrequency(SOAPY_SDR_RX,channel,(double)rfreq);
+    freq=device->getFrequency(SOAPY_SDR_RX,channel);
+    Message("Actual freq: %d",freq);
+
     //WinradCallBack(-1, WINRAD_LOCHANGE, 0, NULL);
     Message("SetHWLO returns");
 	return 0;
 }
 
 extern "C"
-int EXTIO_API StartHW(long freq)
+int EXTIO_API StartHW(long rfreq)
 {
     Message("StartHW called");
-    if (SetHWLO(freq)!=0) return -1;
+    if (SetHWLO(rfreq)!=0) return -1;
     Start_Thread();
     Message("StartHW returns");
 	return extio_blocksize;
