@@ -352,6 +352,7 @@ void* ThreadProc(ThreadContainer* myvars)
     size_t mtu=myvars->soapy_mtu;
     int soapyflags;
     long long soapytime;
+    Message("thread start");
 
 	short *buffer = NULL;
     short *writeptr,*readptr;
@@ -374,11 +375,14 @@ void* ThreadProc(ThreadContainer* myvars)
     writeptr=readptr=buffer;
     // so - we have buffer, write to it in soapy_mtu chunks
     // read from it in extio_blocksize chunks
+    Message("Thread mtu=%d, blocksize=%d",mtu,blocksize);
 	while (!doThreadExit)
 	{
         // repeat reading into buffer at writeptr until we have extio_blocksize sample at least
         while ((writeptr-readptr) < (blocksize*2)) {
-            int red=device->readStream(stream,(void* const*)&buffer,mtu,soapyflags,soapytime);
+            size_t need=blocksize*2 - (writeptr-readptr);
+            if (need>mtu) need=mtu;
+            int red=device->readStream(stream,(void**)&writeptr,need,soapyflags,soapytime);
             if (red<0) {
                 Message("readStream failed: %d",red);
                 goto cleanUpThread;
@@ -386,8 +390,8 @@ void* ThreadProc(ThreadContainer* myvars)
             writeptr+=red*2;
         }
         // pass all available data
-        while ((writeptr-readptr) > (blocksize*2)) {
-            WinradCallBack(blocksize, 0, 0, (void*)(readptr));
+        while ((writeptr-readptr) >= (blocksize*2)) {
+            WinradCallBack(blocksize, 0, 0, (void*)readptr);
             readptr+=blocksize*2;
         }
         if (readptr==writeptr) readptr=writeptr=buffer;
@@ -395,11 +399,13 @@ void* ThreadProc(ThreadContainer* myvars)
             // handle "leftover" data
             // move the data that lies between readptr .. writeptr to the beginning of teh buffer
             int nshorts=writeptr-readptr;
+            //Message("This should not happen - copying %d shorts",nshorts);
             memcpy(buffer,readptr,nshorts*sizeof(*buffer));
             readptr=buffer;
             writeptr=buffer+nshorts;
         }
 	}
+    Message("thread stops, doThreadExit=%d",doThreadExit);
     device->deactivateStream(stream);
 
 cleanUpThread:
