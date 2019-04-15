@@ -73,7 +73,7 @@ struct ThreadContainer
 {
 	long samplerate;
     int blocksize;  // ExtIO says it's int, so it's int. not size_t
-    //size_t soapy_mtu;
+    size_t soapy_mtu;
 };
 
 struct ThreadContainer ThreadVariables; // TODO better name if needed at all
@@ -319,7 +319,7 @@ int Start_Thread()
     // no more dialog box activity, but keept this just in case
 	ThreadVariables.samplerate = samplerate;
 	ThreadVariables.blocksize = extio_blocksize;
-	//ThreadVariables.soapy_mtu = soapy_mtu;
+	ThreadVariables.soapy_mtu = soapy_mtu;
 	//worker_handle = (HANDLE)_beginthread((void(*)(void*))ThreadProc, 0, (void*)&ThreadVariables);	
     rv=pthread_create(&worker_handle_data,NULL,(void*(*)(void*))ThreadProc,(void*)&ThreadVariables);
 	//if (worker_handle == INVALID_HANDLE_VALUE)
@@ -347,24 +347,52 @@ int Stop_Thread()
 
 void* ThreadProc(ThreadContainer* myvars)
 {
-    long samplerate=myvars->samplerate;
+    //long samplerate=myvars->samplerate;
     int blocksize=myvars->blocksize;
+    size_t mtu=myvars->soapy_mtu;
+    int soapyflags;
+    long long soapytime;
+    // TODO activate stream
 
 	short *buffer = NULL;
-    useconds_t sleeptime = (unsigned long long)blocksize*1000000/samplerate; // time for a block of extio_blocksize in microseconds
+    short *writeptr,*readptr;
 
 	//buffer = (short *)calloc(extio_blocksize, 2*sizeof(short));
-	buffer = (short *)malloc(blocksize*2*sizeof(short));
+	buffer = (short *)malloc(3*blocksize*2*sizeof(short));
 	if (buffer == NULL)
 	{
 		Message("buffer allocation failed");
 		goto cleanUpThread;
 	}
 
+    writeptr=readptr=buffer;
+    // so - we have buffer, write to it in soapy_mtu chunks
+    // read from it in extio_blocksize chunks
 	while (!doThreadExit)
 	{
-        WinradCallBack(blocksize, 0, 0, (void*)(buffer));
-        usleep(sleeptime);
+        // repeat reading into buffer at writeptr until we have extio_blocksize sample at least
+        while ((writeptr-readptr) < (blocksize*2)) {
+            int red=device->readStream(stream,(void* const*)&buffer,mtu,soapyflags,soapytime);
+            if (red<0) {
+                Message("readStream failed: %d",red);
+                goto cleanUpThread;
+            }
+            writeptr+=red*2;
+        }
+        // pass all available data
+        while ((writeptr-readptr) > (blocksize*2)) {
+            WinradCallBack(blocksize, 0, 0, (void*)(readptr));
+            readptr+=blocksize*2;
+        }
+        if (readptr==writeptr) readptr=writeptr=buffer;
+        else {
+            // handle "leftover" data
+            // move the data that lies between readptr .. writeptr to the beginning of teh buffer
+            int nshorts=writeptr-readptr;
+            memcpy(buffer,readptr,nshorts*sizeof(*buffer));
+            readptr=buffer;
+            writeptr=buffer+nshorts;
+        }
 	}
 
 cleanUpThread:
