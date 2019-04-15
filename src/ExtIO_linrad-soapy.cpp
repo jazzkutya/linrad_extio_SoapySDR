@@ -226,9 +226,11 @@ void EXTIO_API SetRFGain(int rgain)
 {
     Message("SetRFGain called");
     // linrad sets gain -6..44
-    if (rgain>gainmax) rgain=gainmax;
-    if (rgain<gainmin) rgain=gainmin;
-    gain=rgain;
+    int mygain=rgain+6; // now 0..50
+    if (mygain<0) mygain=0;
+    if (mygain>(gainmax-gainmin)) mygain=gainmax-gainmin;
+    device->setGain(SOAPY_SDR_RX,channel,gainmin+mygain);
+    gain=mygain-6;
     Message("SetRFGain returns");
 }
 
