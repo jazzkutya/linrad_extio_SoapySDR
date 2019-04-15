@@ -352,7 +352,6 @@ void* ThreadProc(ThreadContainer* myvars)
     size_t mtu=myvars->soapy_mtu;
     int soapyflags;
     long long soapytime;
-    // TODO activate stream
 
 	short *buffer = NULL;
     short *writeptr,*readptr;
@@ -364,6 +363,13 @@ void* ThreadProc(ThreadContainer* myvars)
 		Message("buffer allocation failed");
 		goto cleanUpThread;
 	}
+
+    // activate stream
+    int irv;
+    if ((irv=device->activateStream(stream))!=0) {
+        Message("activateStream failed: %d",irv);
+        goto cleanUpThread;
+    }
 
     writeptr=readptr=buffer;
     // so - we have buffer, write to it in soapy_mtu chunks
@@ -394,10 +400,11 @@ void* ThreadProc(ThreadContainer* myvars)
             writeptr=buffer+nshorts;
         }
 	}
+    device->deactivateStream(stream);
 
 cleanUpThread:
 	// avoid memory leaks!
-	free(buffer);
+	if (buffer) free(buffer);
 
 	//_endthread();
     return NULL;
