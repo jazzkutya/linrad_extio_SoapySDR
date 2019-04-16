@@ -4,41 +4,44 @@
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-macro(use_cxx11)
-  if (CMAKE_VERSION VERSION_LESS "3.1")
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
-    endif ()
-  else ()
-    set (CMAKE_CXX_STANDARD 11)
-  endif ()
-endmacro(use_cxx11)
+add_library(ExtIO_linrad-soapy MODULE ExtIO_linrad-soapy.h ExtIO_linrad-soapy.cpp
+    ../SoapyRemote/server/ServerListener.cpp
+    ../SoapyRemote/server/ClientHandler.cpp
+    ../SoapyRemote/server/LogForwarding.cpp
+    ../SoapyRemote/server/ServerStreamData.cpp)
 
-#enable c++11 features
-#if(CMAKE_COMPILER_IS_GNUCXX)
-#
-#    #C++11 is a required language feature for this project
-#    include(CheckCXXCompilerFlag)
-#    CHECK_CXX_COMPILER_FLAG("-std=c++11" HAS_STD_CXX11)
-#    if(HAS_STD_CXX11)
-#        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-#    else(HAS_STD_CXX11)
-#        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
-#    endif()
+target_link_libraries(ExtIO_linrad-soapy PRIVATE SoapySDR SoapySDRRemoteCommon)
+message(STATUS "SOAPY_SERVER_SOURCES: ${SOAPY_SERVER_SOURCES}")
+target_include_directories(ExtIO_linrad-soapy PRIVATE ../SoapyRemote/server)
+target_include_directories(ExtIO_linrad-soapy PRIVATE ../SoapyRemote/common)
 
-#    #disable warnings for unused parameters
-#    add_definitions(-Wno-unused-parameter)
-
-#endif(CMAKE_COMPILER_IS_GNUCXX)
-
-add_library(ExtIO_linrad-soapy MODULE ExtIO_linrad-soapy.h ExtIO_linrad-soapy.cpp)
-target_link_libraries(ExtIO_linrad-soapy ${OTHER_LIBRARIES})
-set_target_properties(ExtIO_linrad-soapy PROPERTIES DEBUG_POSTFIX "") #same name in debug mode
+# target_link_libraries(ExtIO_linrad-soapy ${OTHER_LIBRARIES})
+# set_target_properties(ExtIO_linrad-soapy PROPERTIES DEBUG_POSTFIX "") #same name in debug mode
 
 find_package(Threads REQUIRED)
+message(STATUS "CMAKE_THREAD_LIBS_INIT: ${CMAKE_THREAD_LIBS_INIT}")
 if(THREADS_HAVE_PTHREAD_ARG)
   target_compile_options(ExtIO_linrad-soapy PUBLIC "-pthread")
 endif()
 if(CMAKE_THREAD_LIBS_INIT)
-  target_link_libraries(ExtIO_linrad-soapy "${CMAKE_THREAD_LIBS_INIT}")
+    target_link_libraries(ExtIO_linrad-soapy PUBLIC "${CMAKE_THREAD_LIBS_INIT}")
+endif()
+
+########################################################################
+# Thread config support
+########################################################################
+find_library(
+    RT_LIBRARIES
+    NAMES rt
+    PATHS /usr/lib /usr/lib64
+)
+
+if (RT_LIBRARIES)
+    target_link_libraries(ExtIO_linrad-soapy PRIVATE ${RT_LIBRARIES})
+endif()
+
+if(WIN32)
+    target_sources(ExtIO_linrad-soapy PRIVATE ../SoapyRemote/server/ThreadPrioWindows.cpp)
+elseif(UNIX)
+    target_sources(ExtIO_linrad-soapy PRIVATE ../SoapyRemote/server/ThreadPrioUnix.cpp)
 endif()

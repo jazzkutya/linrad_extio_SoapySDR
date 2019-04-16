@@ -1,0 +1,3 @@
+[submodule "src/SoapyRemote"]
+	path = src/SoapyRemote
+	url = https://github.com/pothosware/SoapyRemote
