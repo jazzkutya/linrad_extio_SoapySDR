@@ -31,5 +31,4 @@ DEALINGS IN THE SOFTWARE.
 * maybe also __stdcall
 */
 
-#define EXTIO_API
-
+#define EXTIO_API(TYPE) extern "C" TYPE

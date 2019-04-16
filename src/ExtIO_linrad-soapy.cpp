@@ -124,8 +124,7 @@ void setsr(long sr) {
     }
     Message("soapy MTU %d, blocksize %d",soapy_mtu,extio_blocksize);
 }
-extern "C"
-bool  EXTIO_API InitHW(char *name, char *model, int& type)
+EXTIO_API(bool) InitHW(char *name, char *model, int& type)
 {
     //  get device selector string from env
     //  make the device with soapy
@@ -151,8 +150,7 @@ bool  EXTIO_API InitHW(char *name, char *model, int& type)
     return TRUE;
 }
 
-extern "C"
-bool  EXTIO_API OpenHW()
+EXTIO_API(bool) OpenHW()
 {
     Message("OpenHW called");
     const char *devspec=getenv("LINRAD_SOAPY_DEV");
@@ -182,8 +180,7 @@ bool  EXTIO_API OpenHW()
 	return TRUE;
 }
 
-extern "C"
-long EXTIO_API SetHWLO(long rfreq)
+EXTIO_API(long) SetHWLO(long rfreq)
 {
     Message("SetHWLO called: %d (min/max: %d/%d)",rfreq,freqmin,freqmax);
 	//WinradCallBack(-1, WINRAD_LOBLOCKED, 0, NULL);
@@ -208,8 +205,7 @@ long EXTIO_API SetHWLO(long rfreq)
 	return 0;
 }
 
-extern "C"
-int EXTIO_API StartHW(long rfreq)
+EXTIO_API(int) StartHW(long rfreq)
 {
     Message("StartHW called");
     if (SetHWLO(rfreq)!=0) return -1;
@@ -218,23 +214,20 @@ int EXTIO_API StartHW(long rfreq)
 	return extio_blocksize;
 }
 
-extern "C" long EXTIO_API GetHWLO() {return freq;}
+EXTIO_API(long) GetHWLO() {return freq;}
 
-extern "C" long EXTIO_API GetHWSR() {return samplerate;}
+EXTIO_API(long) GetHWSR() {return samplerate;}
 
 /* meh, linrad does not actually have UI for setting sample rate for ExtIO device
  * also linrad defines this as SetHWSR(int), not SetHWSR(long)
-extern "C"
-long EXTIO_API SetHWSR(int WantedSR)
-{
+EXTIO_API(long) SetHWSR(int WantedSR) {
     setsr(WantedSR);
     WinradCallBack(-1, WINRAD_SRCHANGE, 0, NULL);
 	return GetHWSR();
 }
 */
 
-extern "C"
-void EXTIO_API SetRFGain(int rgain)
+EXTIO_API(void) SetRFGain(int rgain)
 {
     Message("SetRFGain called");
     // linrad sets gain -6..44
@@ -247,22 +240,22 @@ void EXTIO_API SetRFGain(int rgain)
 }
 
 
-extern "C" int EXTIO_API GetRFGain(void) {return gain;}
+EXTIO_API(int) GetRFGain(void) {return gain;}
 /*
-extern "C" int EXTIO_API ExtIoGetSrates(int srate_idx, double * samplerate) {return 1;}	// ERROR
-extern "C" int EXTIO_API ExtIoGetActualSrateIdx(void) {return 0;}
-extern "C" int EXTIO_API ExtIoSetSrate(int srate_idx) {return 1;}	// ERROR
-extern "C" int EXTIO_API GetAttenuators(int atten_idx, float * attenuation) {return 1;}	// ERROR
-extern "C" int EXTIO_API GetActualAttIdx(void) {return 0;}
-extern "C" int EXTIO_API SetAttenuator(int atten_idx) {return 1;}	// ERROR
-extern "C" int EXTIO_API ExtIoGetAGCs(int agc_idx, char * text) {return 1;}	// ERROR
-extern "C" int EXTIO_API ExtIoGetActualAGCidx(void) { return 0;}
-extern "C" int EXTIO_API ExtIoSetAGC(int agc_idx) {return 1;}	// ERROR
-extern "C" int EXTIO_API ExtIoGetSetting(int idx, char * description, char * value) {return 1;}
-extern "C" void EXTIO_API ExtIoSetSetting(int idx, const char * value) {return;}
+EXTIO_API(int) ExtIoGetSrates(int srate_idx, double * samplerate) {return 1;}	// ERROR
+EXTIO_API(int) ExtIoGetActualSrateIdx(void) {return 0;}
+EXTIO_API(int) ExtIoSetSrate(int srate_idx) {return 1;}	// ERROR
+EXTIO_API(int) GetAttenuators(int atten_idx, float * attenuation) {return 1;}	// ERROR
+EXTIO_API(int) GetActualAttIdx(void) {return 0;}
+EXTIO_API(int) SetAttenuator(int atten_idx) {return 1;}	// ERROR
+EXTIO_API(int) ExtIoGetAGCs(int agc_idx, char * text) {return 1;}	// ERROR
+EXTIO_API(int) ExtIoGetActualAGCidx(void) { return 0;}
+EXTIO_API(int) ExtIoSetAGC(int agc_idx) {return 1;}	// ERROR
+EXTIO_API(int) ExtIoGetSetting(int idx, char * description, char * value) {return 1;}
+EXTIO_API(void) ExtIoSetSetting(int idx, const char * value) {return;}
 */
 
-extern "C" void EXTIO_API StopHW() {
+EXTIO_API(void) StopHW() {
     Message("StopHW called");
 	Running = FALSE;
 	Stop_Thread();
@@ -277,20 +270,20 @@ extern "C" void EXTIO_API StopHW() {
     Message("StopHW returns");
 }
 
-extern "C" void EXTIO_API CloseHW() {
+EXTIO_API(void) CloseHW() {
     //Message("CloseHW called");
     //Message("CloseHW returns");
 }
 
 /*
-extern "C" void EXTIO_API ShowGUI() {}
-extern "C" void EXTIO_API HideGUI() {}
-extern "C" void EXTIO_API SwitchGUI() {}
+EXTIO_API(void) ShowGUI() {}
+EXTIO_API(void) HideGUI() {}
+EXTIO_API(void) SwitchGUI() {}
 */
 
-extern "C" void EXTIO_API SetCallback(void(*myCallBack)(int, int, float, void *)) {WinradCallBack = myCallBack;}
+EXTIO_API(void) SetCallback(void(*myCallBack)(int, int, float, void *)) {WinradCallBack = myCallBack;}
 
-extern "C" int EXTIO_API GetStatus() {return 0;}
+EXTIO_API(int) GetStatus() {return 0;}
 
 // end of extio interface
 
