@@ -46,6 +46,20 @@ DEALINGS IN THE SOFTWARE.
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Version.hpp>
 
+// includes for SoapyRemote / SoapyServer
+#include "SoapyServer.hpp"
+#include "SoapyRemoteDefs.hpp"
+#include "SoapyURLUtils.hpp"
+#include "SoapyInfoUtils.hpp"
+#include "SoapyRPCSocket.hpp"
+#include "SoapySSDPEndpoint.hpp"
+#include "SoapyMDNSEndpoint.hpp"
+#include <cstdlib>
+#include <cstddef>
+#include <iostream>
+#include <getopt.h>
+#include <csignal>
+
 //using namespace std;
 
 #define EXTIO_HWTYPE_16B 3
@@ -82,10 +96,13 @@ struct ThreadContainer ThreadVariables; // TODO better name if needed at all
 // Thread handle
 pthread_t *worker_handle=NULL;
 pthread_t worker_handle_data;
+pthread_t *soapyremote_thread_handle=NULL;
+pthread_t soapyremote_thread_handle_data;
 
 void* ThreadProc(ThreadContainer*);
 int Start_Thread();
 int Stop_Thread();
+int Start_SoapyRemoteThread();
 
 /* ExtIO Callback */
 void (* WinradCallBack)(int, int, float, void *) = NULL;
@@ -97,6 +114,9 @@ void (* WinradCallBack)(int, int, float, void *) = NULL;
 #define WINRAD_LORELEASED 103
 #define HDSDR_RX_LEFT	131
 
+// SoapyRemote / SoapyServer variables
+static sig_atomic_t serverDone = false;
+
 int Message(const char *format, ...) {
     va_list ap;
     va_start(ap, format);
@@ -104,6 +124,81 @@ int Message(const char *format, ...) {
     fputc('\n',stderr);
     va_end(ap);
     return rv;
+}
+
+/***********************************************************************
+ * Launch the server
+ **********************************************************************/
+static void* runServer(void)
+{
+    SoapySocketSession sess;
+    const bool isIPv6Supported = not SoapyRPCSocket(SoapyURL("tcp", "::", "0").toString()).null();
+    const auto defaultBindNode = isIPv6Supported?"::":"0.0.0.0";
+    const int ipVerServices = isIPv6Supported?SOAPY_REMOTE_IPVER_UNSPEC:SOAPY_REMOTE_IPVER_INET;
+
+    //extract url from user input or generate automatically
+    const bool optargHasURL = (optarg != NULL and not std::string(optarg).empty());
+    auto url = (optargHasURL)? SoapyURL(optarg) : SoapyURL("tcp", defaultBindNode, "");
+
+    //default url parameters when not specified
+    if (url.getScheme().empty()) url.setScheme("tcp");
+    if (url.getService().empty()) url.setService(SOAPY_REMOTE_DEFAULT_SERVICE);
+
+    //this UUID identifies the server process
+    const auto serverUUID = SoapyInfo::generateUUID1();
+    std::cout << "Server version: " << SoapyInfo::getServerVersion() << std::endl;
+    std::cout << "Server UUID: " << serverUUID << std::endl;
+
+    std::cout << "Launching the server... " << url.toString() << std::endl;
+    SoapyRPCSocket s;
+    if (s.bind(url.toString()) != 0)
+    {
+        std::cerr << "Server socket bind FAIL: " << s.lastErrorMsg() << std::endl;
+        //return EXIT_FAILURE;
+        return NULL;
+    }
+    std::cout << "Server bound to " << s.getsockname() << std::endl;
+    s.listen(SOAPY_REMOTE_LISTEN_BACKLOG);
+    auto serverListener = new SoapyServerListener(s, serverUUID);
+
+    std::cout << "Launching discovery server... " << std::endl;
+    auto ssdpEndpoint = new SoapySSDPEndpoint();
+    ssdpEndpoint->registerService(serverUUID, url.getService(), ipVerServices);
+
+    std::cout << "Connecting to DNS-SD daemon... " << std::endl;
+    auto dnssdPublish = new SoapyMDNSEndpoint();
+    dnssdPublish->printInfo();
+    dnssdPublish->registerService(serverUUID, url.getService(), ipVerServices);
+
+    //std::cout << "Press Ctrl+C to stop the server" << std::endl;
+    //signal(SIGINT, sigIntHandler);
+    bool exitFailure = false;
+    while (not serverDone and not exitFailure)
+    {
+        serverListener->handleOnce();
+        if (not s.status())
+        {
+            std::cerr << "Server socket failure: " << s.lastErrorMsg() << std::endl;
+            exitFailure = true;
+        }
+        if (not dnssdPublish->status())
+        {
+            std::cerr << "DNS-SD daemon disconnected..." << std::endl;
+            exitFailure = true;
+        }
+    }
+    if (exitFailure) std::cerr << "Exiting prematurely..." << std::endl;
+
+    delete ssdpEndpoint;
+    delete dnssdPublish;
+
+    std::cout << "Shutdown client handler threads" << std::endl;
+    delete serverListener;
+    s.close();
+
+    std::cout << "Cleanup complete, exiting" << std::endl;
+    //return exitFailure?EXIT_FAILURE:EXIT_SUCCESS;
+    return NULL;
 }
 
 void setsr(long sr) {
@@ -146,6 +241,7 @@ EXTIO_API(bool) InitHW(char *name, char *model, int& type)
     SoapySDR::Device::unmake(device);
     device=NULL;
 
+    Start_SoapyRemoteThread();
     Message("InitHW returns");
     return TRUE;
 }
@@ -161,6 +257,8 @@ EXTIO_API(bool) OpenHW()
         Message("SoapySDR::Device::make(\"%s\") failed",devspec);
         return FALSE;
     }
+    auto drivername=device->getDriverKey();
+    Message("Using diver: %s",drivername.c_str());
     channel=0;
     stream=device->setupStream(SOAPY_SDR_RX,"CS16",std::vector<size_t>(1,channel));
     if (stream==NULL) {
@@ -313,6 +411,26 @@ int Start_Thread()
     worker_handle=&worker_handle_data;
     // TODO but this will need root
 	//SetThreadPriority(worker_handle, THREAD_PRIORITY_TIME_CRITICAL);
+	return 0;
+}
+
+int Start_SoapyRemoteThread()
+{
+    int rv;
+	//If already running, exit
+	if (soapyremote_thread_handle != NULL)
+	{
+		Message("Start_SoapyRemoteThread() returns -1");
+		return -1;
+	}
+
+    rv=pthread_create(&soapyremote_thread_handle_data,NULL,(void*(*)(void*))runServer,(void*)NULL);
+	//if (worker_handle == INVALID_HANDLE_VALUE)
+	if (rv!=0) {
+		Message("Start_SoapyRemoteThread() return error: %s",strerror(rv));
+		return -1;
+	}
+    soapyremote_thread_handle=&soapyremote_thread_handle_data;
 	return 0;
 }
 
