@@ -227,7 +227,7 @@ extern "C" long EXTIO_API GetHWSR() {return samplerate;}
 extern "C"
 long EXTIO_API SetHWSR(int WantedSR)
 {
-    SampleRateIdx = FindSampleRateIdx(WantedSR);
+    setsr(WantedSR);
     WinradCallBack(-1, WINRAD_SRCHANGE, 0, NULL);
 	return GetHWSR();
 }
@@ -284,9 +284,7 @@ extern "C" void EXTIO_API CloseHW() {
 
 /*
 extern "C" void EXTIO_API ShowGUI() {}
-
 extern "C" void EXTIO_API HideGUI() {}
-
 extern "C" void EXTIO_API SwitchGUI() {}
 */
 
