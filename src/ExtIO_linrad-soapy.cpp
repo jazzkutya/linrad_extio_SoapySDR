@@ -129,8 +129,8 @@ bool  EXTIO_API InitHW(char *name, char *model, int& type)
     //  get device selector string from env
     //  make the device with soapy
     //  maybe also set up stream just to be sure channel 0 is available
-    samplerate=8000000;
     Message("InitHW called");
+    samplerate=8000000;
     strcpy(name,"SoapySDR");
     type = EXTIO_HWTYPE_16B;
     const char *devspec=getenv("LINRAD_SOAPY_DEV");
@@ -143,6 +143,25 @@ bool  EXTIO_API InitHW(char *name, char *model, int& type)
     }
     auto drivername=device->getDriverKey();
     strcpy(model,drivername.c_str());
+    SoapySDR::Device::unmake(device);
+    device=NULL;
+
+    Message("InitHW returns");
+    return TRUE;
+}
+
+extern "C"
+bool  EXTIO_API OpenHW()
+{
+    Message("OpenHW called");
+    const char *devspec=getenv("LINRAD_SOAPY_DEV");
+    if (devspec==NULL) devspec="";
+    // TODO catch exceptions
+    device=SoapySDR::Device::make(devspec);
+    if (device==NULL) {
+        Message("SoapySDR::Device::make(\"%s\") failed",devspec);
+        return FALSE;
+    }
     channel=0;
     stream=device->setupStream(SOAPY_SDR_RX,"CS16",std::vector<size_t>(1,channel));
     if (stream==NULL) {
@@ -158,14 +177,6 @@ bool  EXTIO_API InitHW(char *name, char *model, int& type)
     freqmin=frl.front().minimum();
     Message("Freq range: %d-%d",freqmin,freqmax);
 
-    Message("InitHW returns");
-    return TRUE;
-}
-
-extern "C"
-bool  EXTIO_API OpenHW()
-{
-    Message("OpenHW called");
     Message("OpenHW returns");
 	return TRUE;
 }
@@ -266,38 +277,16 @@ extern "C" void EXTIO_API StopHW() {
 }
 
 extern "C" void EXTIO_API CloseHW() {
-    Message("CloseHW called");
-    Message("CloseHW returns");
+    //Message("CloseHW called");
+    //Message("CloseHW returns");
 }
 
 /*
-extern "C"
-void EXTIO_API ShowGUI()
-{
-	//if (h_dialog == NULL)
-	//	h_dialog = CreateDialog(hInst, MAKEINTRESOURCE(IDD_SDRPLAY_SETTINGS), NULL, (DLGPROC)MainDlgProc);
-	//ShowWindow(h_dialog,SW_SHOW);
-	//SetForegroundWindow(h_dialog);
-}
-*/
+extern "C" void EXTIO_API ShowGUI() {}
 
-/*
-extern "C"
-void EXTIO_API HideGUI()
-{
-	//ShowWindow(h_dialog,SW_HIDE);
-}
-*/
+extern "C" void EXTIO_API HideGUI() {}
 
-/*
-extern "C"
-void EXTIO_API SwitchGUI()
-{
-	//if (IsWindowVisible(h_dialog))
-	//	ShowWindow(h_dialog,SW_HIDE);
-	//else
-	//	ShowWindow(h_dialog,SW_SHOW);
-}
+extern "C" void EXTIO_API SwitchGUI() {}
 */
 
 extern "C" void EXTIO_API SetCallback(void(*myCallBack)(int, int, float, void *)) {WinradCallBack = myCallBack;}
@@ -354,12 +343,12 @@ void* ThreadProc(ThreadContainer* myvars)
     size_t mtu=myvars->soapy_mtu;
     int soapyflags;
     long long soapytime;
+    bool need2deactivate=false;
     Message("thread start");
 
 	short *buffer = NULL;
     short *writeptr,*readptr;
 
-	//buffer = (short *)calloc(extio_blocksize, 2*sizeof(short));
 	buffer = (short *)malloc(3*blocksize*2*sizeof(short));
 	if (buffer == NULL)
 	{
@@ -372,7 +361,7 @@ void* ThreadProc(ThreadContainer* myvars)
     if ((irv=device->activateStream(stream))!=0) {
         Message("activateStream failed: %d",irv);
         goto cleanUpThread;
-    }
+    } else need2deactivate=true;
 
     writeptr=readptr=buffer;
     // so - we have buffer, write to it in soapy_mtu chunks
@@ -408,10 +397,9 @@ void* ThreadProc(ThreadContainer* myvars)
         }
 	}
     Message("thread stops, doThreadExit=%d",doThreadExit);
-    device->deactivateStream(stream);
 
 cleanUpThread:
-	// avoid memory leaks!
+    if (need2deactivate) device->deactivateStream(stream);
 	if (buffer) free(buffer);
 
 	//_endthread();

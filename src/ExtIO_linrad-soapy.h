@@ -32,5 +32,3 @@ For more information, please refer to <http://unlicense.org>
 
 #define EXTIO_API
 
-//#define LIBSDRplay_API
-
