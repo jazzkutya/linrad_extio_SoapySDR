@@ -204,7 +204,7 @@ static void* runServer(void)
 void setsr(long sr) {
     device->setSampleRate(SOAPY_SDR_RX,channel,(double)sr);
     samplerate=(long)device->getSampleRate(SOAPY_SDR_RX,channel);
-    Message("Actual sample rate is %d",samplerate);
+    Message("Actual sample rate is %ld",samplerate);
 
     soapy_mtu=device->getStreamMTU(stream);
     if (soapy_mtu>=16384 && (soapy_mtu&511)==0) extio_blocksize=soapy_mtu;  // that lower limit should depend on samplerate and extio_bps, actually
@@ -272,7 +272,7 @@ EXTIO_API(bool) OpenHW()
     auto frl=device->getFrequencyRange(SOAPY_SDR_RX,channel);
     freqmax=frl.back().maximum();
     freqmin=frl.front().minimum();
-    Message("Freq range: %d-%d",freqmin,freqmax);
+    Message("Freq range: %ld-%ld",freqmin,freqmax);
 
     Message("OpenHW returns");
 	return TRUE;
@@ -280,7 +280,7 @@ EXTIO_API(bool) OpenHW()
 
 EXTIO_API(long) SetHWLO(long rfreq)
 {
-    Message("SetHWLO called: %d (min/max: %d/%d)",rfreq,freqmin,freqmax);
+    Message("SetHWLO called: %ld (min/max: %ld/%ld)",rfreq,freqmin,freqmax);
 	//WinradCallBack(-1, WINRAD_LOBLOCKED, 0, NULL);
 	if (rfreq > freqmax)
 	{
@@ -296,7 +296,7 @@ EXTIO_API(long) SetHWLO(long rfreq)
 	}
     device->setFrequency(SOAPY_SDR_RX,channel,(double)rfreq);
     freq=device->getFrequency(SOAPY_SDR_RX,channel);
-    Message("Actual freq: %d",freq);
+    Message("Actual freq: %ld",freq);
 
     //WinradCallBack(-1, WINRAD_LOCHANGE, 0, NULL);
     Message("SetHWLO returns");
