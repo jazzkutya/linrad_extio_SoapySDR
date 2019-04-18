@@ -481,7 +481,7 @@ void* ThreadProc(ThreadContainer* myvars)
 	{
         // repeat reading into buffer at writeptr until we have extio_blocksize sample at least
         while ((writeptr-readptr) < (blocksize*2)) {
-            size_t need=blocksize*2 - (writeptr-readptr);
+            size_t need=blocksize - ((writeptr-readptr)>>1);
             if (need>mtu) need=mtu;
             int red=device->readStream(stream,(void**)&writeptr,need,soapyflags,soapytime);
             if (red<0) {
