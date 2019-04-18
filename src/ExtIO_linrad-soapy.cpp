@@ -207,7 +207,7 @@ void setsr(long sr) {
     Message("Actual sample rate is %ld",samplerate);
 
     soapy_mtu=device->getStreamMTU(stream);
-    if (soapy_mtu>=16384 && (soapy_mtu&511)==0) extio_blocksize=soapy_mtu;  // that lower limit should depend on samplerate and extio_bps, actually
+    if (soapy_mtu>=512 && (soapy_mtu&511)==0) extio_blocksize=soapy_mtu;  // that lower limit should depend on samplerate and extio_bps, actually
     else {
         int min512=soapy_mtu>>9;
         if (soapy_mtu&511) min512++;
