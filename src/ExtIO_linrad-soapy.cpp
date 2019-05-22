@@ -63,6 +63,9 @@ DEALINGS IN THE SOFTWARE.
 //using namespace std;
 
 #define EXTIO_HWTYPE_16B 3
+#define EXTIO_HWTYPE_24B 5
+#define EXTIO_HWTYPE_32B 6
+#define EXTIO_HWTYPE_FLOAT 7
 
 //#define DEBUG 0
 
@@ -83,12 +86,15 @@ SoapySDR::Device *device=NULL;
 size_t channel=0;
 SoapySDR::Stream *stream=NULL;
 size_t soapy_mtu;
+double fullscale;
+std::string streamformat;
 
 struct ThreadContainer 
 {
 	long samplerate;
     int blocksize;  // ExtIO says it's int, so it's int. not size_t
     size_t soapy_mtu;
+    std::string streamformat;
 };
 
 struct ThreadContainer ThreadVariables; // TODO better name if needed at all
@@ -238,6 +244,29 @@ EXTIO_API(bool) InitHW(char *name, char *model, int& type)
     }
     auto drivername=device->getDriverKey();
     strcpy(model,drivername.c_str());
+    streamformat=device->getNativeStreamFormat(SOAPY_SDR_RX,channel,fullscale);
+    if (streamformat=="CS16") {
+        type=EXTIO_HWTYPE_16B;
+    } else if (streamformat=="CF32") {
+        type=EXTIO_HWTYPE_FLOAT;
+    } else {
+        auto formats=device->getStreamFormats(SOAPY_SDR_RX,channel);
+        for(std::vector<std::string>::iterator it = formats.begin(); it != formats.end(); it++) {
+            if (*it == "CS16") {
+                type=EXTIO_HWTYPE_16B;
+                streamformat = *it;
+            } else if (*it == "CF32") {
+                type=EXTIO_HWTYPE_FLOAT;
+                streamformat = *it;
+            } else {
+                Message("no supported streamformat found");
+                // use CS16 and die horribly later
+                type=EXTIO_HWTYPE_16B;
+                streamformat="CS16";
+            }
+        }
+    }
+
     SoapySDR::Device::unmake(device);
     device=NULL;
 
@@ -260,7 +289,7 @@ EXTIO_API(bool) OpenHW()
     auto drivername=device->getDriverKey();
     Message("Using diver: %s",drivername.c_str());
     channel=0;
-    stream=device->setupStream(SOAPY_SDR_RX,"CS16",std::vector<size_t>(1,channel));
+    stream=device->setupStream(SOAPY_SDR_RX,streamformat,std::vector<size_t>(1,channel));
     if (stream==NULL) {
         Message("SoapySDR::Device::setupStream() failed");
         return FALSE;
@@ -401,6 +430,7 @@ int Start_Thread()
 	ThreadVariables.samplerate = samplerate;
 	ThreadVariables.blocksize = extio_blocksize;
 	ThreadVariables.soapy_mtu = soapy_mtu;
+    ThreadVariables.streamformat=std::string(streamformat);
 	//worker_handle = (HANDLE)_beginthread((void(*)(void*))ThreadProc, 0, (void*)&ThreadVariables);	
     rv=pthread_create(&worker_handle_data,NULL,(void*(*)(void*))ThreadProc,(void*)&ThreadVariables);
 	//if (worker_handle == INVALID_HANDLE_VALUE)
@@ -446,20 +476,17 @@ int Stop_Thread()
 	return 0;
 }
 
-void* ThreadProc(ThreadContainer* myvars)
-{
-    //long samplerate=myvars->samplerate;
-    int blocksize=myvars->blocksize;
-    size_t mtu=myvars->soapy_mtu;
+template <typename stype>
+void* dothread(int blocksize,size_t mtu) {
     int soapyflags;
     long long soapytime;
     bool need2deactivate=false;
     Message("thread start");
 
-	short *buffer = NULL;
-    short *writeptr,*readptr;
+	stype *buffer = NULL;
+    stype *writeptr,*readptr;
 
-	buffer = (short *)malloc(3*blocksize*2*sizeof(short));
+	buffer = (stype *)malloc(3*blocksize*2*sizeof(stype));
 	if (buffer == NULL)
 	{
 		Message("buffer allocation failed");
@@ -499,11 +526,11 @@ void* ThreadProc(ThreadContainer* myvars)
         else {
             // handle "leftover" data
             // move the data that lies between readptr .. writeptr to the beginning of teh buffer
-            int nshorts=writeptr-readptr;
+            int nstypes=writeptr-readptr;
             //Message("This should not happen - copying %d shorts",nshorts);
-            memcpy(buffer,readptr,nshorts*sizeof(*buffer));
+            memcpy(buffer,readptr,nstypes*sizeof(stype));
             readptr=buffer;
-            writeptr=buffer+nshorts;
+            writeptr=buffer+nstypes;
         }
 	}
     Message("thread stops, doThreadExit=%d",doThreadExit);
@@ -514,5 +541,16 @@ cleanUpThread:
 
 	//_endthread();
     return NULL;
+}
+
+void* ThreadProc(ThreadContainer* myvars)
+{
+    //long samplerate=myvars->samplerate;
+    int blocksize=myvars->blocksize;
+    size_t mtu=myvars->soapy_mtu;
+    std::string format=myvars->streamformat;
+    if (format=="CS16") return dothread <short> (blocksize,mtu);
+    else if (format=="CF32") return dothread <float> (blocksize,mtu);
+    else return dothread <short> (blocksize,mtu);    // should not happen
 }
 
