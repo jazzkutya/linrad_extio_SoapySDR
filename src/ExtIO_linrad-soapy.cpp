@@ -45,6 +45,7 @@ DEALINGS IN THE SOFTWARE.
 #include <pthread.h>
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Version.hpp>
+#include <SoapySDR/Errors.hpp>
 
 // includes for SoapyRemote / SoapyServer
 #include "SoapyServer.hpp"
@@ -231,6 +232,7 @@ EXTIO_API(bool) InitHW(char *name, char *model, int& type)
     //  make the device with soapy
     //  maybe also set up stream just to be sure channel 0 is available
     Message("InitHW called");
+    //samplerate=768000;
     samplerate=8000000;
     strcpy(name,"SoapySDR");
     type = EXTIO_HWTYPE_16B;
@@ -481,6 +483,7 @@ void* dothread(int blocksize,size_t mtu) {
     int soapyflags;
     long long soapytime;
     bool need2deactivate=false;
+    int toutcnt=0;
     Message("thread start");
 
 	stype *buffer = NULL;
@@ -512,8 +515,21 @@ void* dothread(int blocksize,size_t mtu) {
             if (need>mtu) need=mtu;
             int red=device->readStream(stream,(void**)&writeptr,need,soapyflags,soapytime);
             if (red<0) {
-                Message("readStream failed: %d",red);
-                goto cleanUpThread;
+                if (red==SOAPY_SDR_TIMEOUT) {
+                    toutcnt++;
+                    if (toutcnt>=51) {
+                        Message("got timeout for %d times. giving up",toutcnt);
+                        goto cleanUpThread;
+                    } else {
+                        red=0;
+                    }
+                } else {
+                    Message("readStream failed: %s",SoapySDR::errToStr(red));
+                    goto cleanUpThread;
+                }
+            } else {
+                if (toutcnt) Message("Recovered after timeout %d timeouts",toutcnt);
+                toutcnt=0;
             }
             writeptr+=red*2;
         }
